@@ -5,8 +5,10 @@ from pydantic_settings import BaseSettings
 from functools import lru_cache
 
 class Settings(BaseSettings):
-    DEVELOPMENT:str = False
+    DEVELOPMENT:bool = False
     PORT:int = 3000
+    MODEL:str = "gemma4:31b-cloud"
+    PROVIDER:str = "ollama"
     
     
     
