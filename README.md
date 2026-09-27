@@ -46,3 +46,20 @@ patchpilot/
 ├── README.md
 └── .env
 ```
+
+```Python
+                    User
+                      │
+                      ▼
+                ┌───────────┐
+                │    LLM    │
+                └─────┬─────┘
+                      │
+          ┌───────────┼───────────┐
+          ▼           ▼           ▼
+     list_file   search_file   search_code
+                      │           │
+                      └─────┬─────┘
+                            ▼
+                        read_file
+```

@@ -3,6 +3,47 @@ from pathlib import Path
 import subprocess
 import json
 
+
+@tool
+def list_dir(dir_path: str) -> dict:
+    """List all directories inside a given directory."""
+
+    if not dir_path or not dir_path.strip():
+        return {
+            "message": "Directory path is not provided",
+            "status": "error"
+        }
+
+    dir_path = Path(dir_path).resolve()
+
+    if not dir_path.exists():
+        return {
+            "message": f"Directory does not exist: {dir_path}",
+            "status": "error"
+        }
+
+    if not dir_path.is_dir():
+        return {
+            "message": f"Path is not a directory: {dir_path}",
+            "status": "error"
+        }
+
+    folders = [
+        str(folder)
+        for folder in dir_path.iterdir()
+        if folder.is_dir()
+    ]
+
+    return {
+        "folders": folders,
+        "count": len(folders),
+        "directory": str(dir_path),
+        "status": "success"
+    }
+# print(list_dir.invoke({
+#     "dir_path": "/home/onix/Code"
+# }))
+
 @tool
 def list_file(dir_path) -> dict:
     """List all the files present in the provided dir_path
@@ -18,8 +59,13 @@ def list_file(dir_path) -> dict:
             return {"message":"directory path is not provided", "status":"error"}
     
     dir_path = Path((dir_path)).resolve()
+    if not dir_path.exists():
+        return {
+            "message": f"Directory does not exist: {dir_path}",
+            "status": "error"
+        }
     
-    files = [file for file in dir_path.iterdir() if file.is_file()]
+    files = [str(file) for file in dir_path.iterdir() if file.is_file()]
     return {"files":files, "count":len(files),"directory":str(dir_path)}
 
 # print(list_file.invoke({"dir_path":"/home/onix/Downloads"}))

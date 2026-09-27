@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     PORT:int = 3000
     MODEL:str = "gemma4:31b-cloud"
     PROVIDER:str = "ollama"
+    IS_STREAM:bool = False
     
     
     
