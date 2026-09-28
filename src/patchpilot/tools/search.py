@@ -1,6 +1,6 @@
 from langchain.tools import tool
 import subprocess
-
+import json 
 @tool
 def search_code(query: str, path: str = ".") -> dict:
     """Searches for a text pattern in a directory using ripgrep.
