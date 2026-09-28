@@ -11,7 +11,7 @@ with open ("/home/onix/Code/PatchPilot/src/patchpilot/agent_config/system_prompt
     system_prompt = file.read()
 
 agent = create_agent(
-    system_prompt="",
+    system_prompt=system_prompt,
     tools= tools,
     model = llm_model
     
