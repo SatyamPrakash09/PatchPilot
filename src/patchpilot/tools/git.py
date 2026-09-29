@@ -105,25 +105,47 @@ def git_status(workspace: str = ".") -> str:
         ["status", "--short", "--branch"]
     )
 
-
 @tool
-def git_diff(workspace: str = ".") -> str:
-    """Return the current unstaged changes in the Git repository.
+def git_diff(
+    workspace: str = ".",
+    max_chars: int = 20_000,
+) -> str:
+    """Return a bounded Git diff."""
 
-    Displays line-by-line differences between the working tree and the
-    index.
-
-    Args:
-        workspace: Path to the Git repository or directory inside it. Defaults to current directory (".").
-
-    Returns:
-        A string containing the Git diff output.
-    """
-    return run_git(
+    output = run_git(
         workspace,
-        ["diff"]
+        ["diff", "--no-ext-diff"],
     )
 
+    if len(output) <= max_chars:
+        return output
+
+    return (
+        output[:max_chars]
+        + "\n\n[DIFF TRUNCATED]\n"
+        f"Original size: {len(output):,} characters"
+    )
+
+@tool
+def git_diff_file(
+    file_path: str,
+    workspace: str = ".",
+    max_chars: int = 20_000,
+) -> str:
+    """Show the diff for a specific file."""
+
+    output = run_git(
+        workspace,
+        ["diff", "--", file_path],
+    )
+
+    if len(output) > max_chars:
+        output = (
+            output[:max_chars]
+            + "\n\n[DIFF TRUNCATED]"
+        )
+
+    return output
 
 @tool
 def git_branch(workspace: str = ".") -> str:

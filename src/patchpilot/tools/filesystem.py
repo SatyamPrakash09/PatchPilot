@@ -110,58 +110,108 @@ def search_file_type(dir_path: str = ".", file_glob: str = "*") -> dict:
     }
 
 
+MAX_CHARS = 30_000
+DEFAULT_MAX_LINES = 300
+
+
 @tool
-def read_file(file_path: str, max_lines: int = 500) -> dict:
-    """Reads the content and metadata of a specified file based on its extension.
+def read_file(
+    file_path: str,
+    max_lines: int = DEFAULT_MAX_LINES,
+    max_chars: int = MAX_CHARS,
+) -> dict:
+    """Read a bounded portion of a file.
 
-    Supports reading plaintext files (.py, .txt, .md, .toml, .yaml, etc.), 
-    structured data (.json), and tabular data (.csv).
+    Use this for inspecting files such as Python source, configuration,
+    Markdown, JSON, YAML, TOML, and CSV.
 
-    Args:
-        file_path: The filesystem path of the file to be read.
-        max_lines: Maximum number of lines to return for large files (default: 500).
-
-    Returns:
-        A dictionary containing file_content, file_size, and status.
+    Output is bounded by both max_lines and max_chars to prevent
+    excessive context usage.
     """
+
     if not file_path or not str(file_path).strip():
-        return {"message": "File path is not provided", "status": "error"}
-
-    path_obj = Path(file_path).expanduser().resolve()
-    if not path_obj.exists():
-        return {"message": f"File does not exist: {path_obj}", "status": "error"}
-    if path_obj.is_dir():
         return {
-            "message": f"The path '{path_obj}' is a directory, not a file. Use list_file or list_dir instead.",
-            "status": "error"
+            "message": "File path is not provided",
+            "status": "error",
         }
-    if not path_obj.is_file():
-        return {"message": f"The path '{path_obj}' is not a valid regular file.", "status": "error"}
 
-    ext = path_obj.suffix.lower().lstrip(".")
+    path = Path(file_path).expanduser().resolve()
+
+    if not path.exists():
+        return {
+            "message": f"File does not exist: {path}",
+            "status": "error",
+        }
+
+    if path.is_dir():
+        return {
+            "message": (
+                f"'{path}' is a directory. "
+                "Use list_file/list_dir instead."
+            ),
+            "status": "error",
+        }
+
+    if not path.is_file():
+        return {
+            "message": f"'{path}' is not a regular file.",
+            "status": "error",
+        }
 
     try:
-        if ext == "json":
-            with open(path_obj, "r", encoding="utf-8", errors="replace") as file:
-                file_content = json.load(file)
-        elif ext == "csv":
-            import pandas as pd
-            df = pd.read_csv(path_obj, nrows=max_lines)
-            file_content = df.to_dict(orient="records")
-        else:
-            with open(path_obj, "r", encoding="utf-8", errors="replace") as file:
-                lines = file.readlines()
-                if len(lines) > max_lines:
-                    file_content = "".join(lines[:max_lines]) + f"\n... [Truncated: showing {max_lines}/{len(lines)} lines]"
-                else:
-                    file_content = "".join(lines)
+        # Read text once.
+        content = path.read_text(
+            encoding="utf-8",
+            errors="replace",
+        )
+
+        lines = content.splitlines()
+
+        original_lines = len(lines)
+        original_chars = len(content)
+
+        # First limit lines.
+        selected_lines = lines[:max_lines]
+
+        content = "\n".join(selected_lines)
+
+        truncated_by_lines = original_lines > max_lines
+
+        # Then enforce hard character limit.
+        truncated_by_chars = len(content) > max_chars
+
+        if truncated_by_chars:
+            content = content[:max_chars]
+
+        truncated = (
+            truncated_by_lines
+            or truncated_by_chars
+        )
+
+        if truncated:
+            content += (
+                "\n\n"
+                "[TRUNCATED]\n"
+                f"Showing at most {max_lines:,} lines "
+                f"and {max_chars:,} characters.\n"
+                f"Original: {original_lines:,} lines, "
+                f"{original_chars:,} characters.\n"
+                "Use a more specific range or read_symbol "
+                "to inspect the required code."
+            )
+
+        return {
+            "file_path": str(path),
+            "file_size": path.stat().st_size,
+            "lines": original_lines,
+            "characters": original_chars,
+            "file_content": content,
+            "truncated": truncated,
+            "status": "success",
+        }
+
     except Exception as e:
-        return {"message": f"Failed to read file: {str(e)}", "status": "error"}
-
-    return {
-        "file_path": str(path_obj),
-        "file_size": path_obj.stat().st_size,
-        "file_content": file_content,
-        "status": "success"
-    }
-
+        return {
+            "message": f"Failed to read file: {e}",
+            "status": "error",
+        }
