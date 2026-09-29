@@ -2,17 +2,81 @@ import subprocess
 from pathlib import Path
 from langchain.tools import tool
 
-def run_git(workspace_path:str, args:list[str]) -> str:
-    result =  subprocess.run(
-        ["git", *args],
-        cwd=workspace_path,
-        capture_output=True,
-        text=True    
-    )
-    if result.returncode != 0:
-        raise RuntimeError(result.stderr.strip())
-    return result.stdout
+def find_git_repos(path: str) -> list[Path]:
+    """Find Git repositories at or below the given path."""
 
+    root = Path(path).expanduser().resolve()
+
+    if not root.exists():
+        raise FileNotFoundError(f"Path does not exist: {root}")
+
+    if root.is_file():
+        root = root.parent
+
+    repos = []
+
+    # The path itself is a repository.
+    if (root / ".git").exists():
+        return [root]
+
+    # Search child directories.
+    for git_dir in root.rglob(".git"):
+        repo = git_dir.parent
+
+        if git_dir.is_dir() or git_dir.is_file():
+            repos.append((repo))
+
+    return sorted(set(repos))
+
+# print(find_git_repos("/home/onix/Code/Orbit"))
+
+def run_git(workspace_path: str, args: list[str]) -> str:
+    """Run a Git command in the appropriate repository."""
+
+    try:
+        repos = find_git_repos(workspace_path)
+
+        if not repos:
+            return (
+                f"No Git repository found at or below: "
+                f"{Path(workspace_path).resolve()}"
+            )
+
+        if len(repos) > 1:
+            return (
+                "Multiple Git repositories found:\n"
+                + "\n".join(f"- {repo}" for repo in repos)
+                + "\nPlease specify which repository to use."
+            )
+
+        git_root = repos[0]
+
+        result = subprocess.run(
+            ["git", *args],
+            cwd=git_root,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+
+        if result.returncode != 0:
+            return (
+                f"Git command failed.\n"
+                f"Repository: {git_root}\n"
+                f"Command: git {' '.join(args)}\n"
+                f"Error: {result.stderr.strip()}"
+            )
+
+        return result.stdout.strip()
+
+    except FileNotFoundError as e:
+        return f"Error: {e}"
+
+    except ValueError as e:
+        return f"Error: {e}"
+
+    except subprocess.TimeoutExpired:
+        return "Error: Git command timed out."
 
 @tool
 def git_status(workspace: str) -> str:
@@ -106,6 +170,6 @@ def git_remote_branch(workspace: str) -> str:
 
 # print({
 #     "message": git_remote_branch.invoke({
-#         "workspace": "/home/onix/Code/PatchPilot"
+#         "workspace": "/home/onix/Code/Orbit/backend"
 #     })
 # })
