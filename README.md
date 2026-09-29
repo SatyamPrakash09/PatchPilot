@@ -146,7 +146,15 @@ PatchPilot/
    pip install -e .
    ```
 
-3. **Pull or configure an LLM model in Ollama**:
+3. **Install globally (Run from anywhere via `uv tool`)**:
+   Install `patchpilot` as a persistent, globally accessible terminal command in editable mode:
+   ```bash
+   uv tool install --editable .
+   ```
+   - Places the `patchpilot` binary directly in `~/.local/bin/patchpilot`.
+   - The `--editable` flag ensures any code changes in the repository immediately apply without reinstalling.
+
+4. **Pull or configure an LLM model in Ollama**:
    ```bash
    ollama pull gemma4:31b-cloud
    # or a smaller local model:
@@ -183,9 +191,13 @@ IS_STREAM=False
 Start an interactive session where you can converse with PatchPilot across multiple turns:
 
 ```bash
-uv run patchpilot
+# Direct command (from any directory):
+patchpilot
 # or
-uv run patchpilot chat
+patchpilot chat
+
+# (Or inside the repo without global install):
+uv run patchpilot
 ```
 
 Inside the interactive session:
@@ -223,13 +235,13 @@ Execute a single prompt without entering the interactive shell:
 
 ```bash
 # General codebase inspection
-uv run patchpilot "What files are in src/patchpilot?"
+patchpilot "What files are in src/patchpilot?"
 
 # Search symbols using Tree-sitter
-uv run patchpilot "Index this codebase and list classes in src/patchpilot/codebase/index.py"
+patchpilot "Index this codebase and list classes in src/patchpilot/codebase/index.py"
 
 # Inspect Git repository state
-uv run patchpilot "What are the latest commits and unstaged changes?"
+patchpilot "What are the latest commits and unstaged changes?"
 ```
 
 ---
@@ -239,9 +251,9 @@ uv run patchpilot "What are the latest commits and unstaged changes?"
 Launch the FastAPI backend server:
 
 ```bash
-uv run patchpilot serve
+patchpilot serve
 # or with a custom port:
-uv run patchpilot --serve --port 8000
+patchpilot --serve --port 8000
 ```
 API endpoints will be available at `http://localhost:3000`.
 
@@ -252,7 +264,7 @@ API endpoints will be available at `http://localhost:3000`.
 Launch the interactive browser UI:
 
 ```bash
-uv run patchpilot ui
+patchpilot ui
 ```
 Open `http://localhost:7860` in your web browser.
 
