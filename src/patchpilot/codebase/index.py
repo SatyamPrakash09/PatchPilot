@@ -36,7 +36,12 @@ class CodebaseIndex:
                     ".env",
                     "venv",
                     "node_modules",
-                    "__pychache__"
+                    ".git",
+                    ".venv",
+                    ".env",
+                    "venv",
+                    "node_modules",
+                    "__pycache__",
                 }
                 for part in path.parts
             ):
@@ -45,34 +50,31 @@ class CodebaseIndex:
             language = supported_extensions[path.suffix]
             
             if language == "python":
-                tree, source = parse_python_file(path)
-                
-                symbols = extract_symbols(tree.root_node, source)
-                
-                relative_path = str(path.relative_to(self.root))
-                
-                self.files.append(
-                    FileIndex(
-                        path=relative_path,
-                        language=language,
-                        symbols=symbols
+                try:
+                    tree, source = parse_python_file(path)
+                    symbols = extract_symbols(tree.root_node, source)
+                    relative_path = str(path.relative_to(self.root))
+                    self.files.append(
+                        FileIndex(
+                            path=relative_path,
+                            language=language,
+                            symbols=symbols
+                        )
                     )
-                )
+                except Exception:
+                    continue
                 
-    def search_symbol(self, query:str)->list[tuple[FileIndex, Symbol]]:
+    def search_symbols(self, query: str) -> list[tuple[FileIndex, Symbol]]:
         query = query.lower()
-        
         results = []
-        
         for file in self.files:
             for symbol in file.symbols:
-                
                 if query in symbol.name.lower():
-                    results.append( 
-                        (file, symbol)
-                    )
-                    
+                    results.append((file, symbol))
         return results
+
+    # Alias for backward compatibility
+    search_symbol = search_symbols
     
     def get_symbol_source(
         self, 

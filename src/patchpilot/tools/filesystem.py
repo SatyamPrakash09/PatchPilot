@@ -5,163 +5,163 @@ import json
 
 
 @tool
-def list_dir(dir_path: str) -> dict:
-    """List all directories inside a given directory."""
+def list_dir(dir_path: str = ".") -> dict:
+    """List all directories inside a given directory.
 
-    if not dir_path or not dir_path.strip():
+    Args:
+        dir_path: directory path in which you want to search folders. Defaults to "." (current directory).
+    """
+    if not dir_path or not str(dir_path).strip():
+        dir_path = "."
+
+    resolved_path = Path(dir_path).expanduser().resolve()
+
+    if not resolved_path.exists():
         return {
-            "message": "Directory path is not provided",
+            "message": f"Directory does not exist: {resolved_path}",
             "status": "error"
         }
 
-    dir_path = Path(dir_path).resolve()
-
-    if not dir_path.exists():
+    if not resolved_path.is_dir():
         return {
-            "message": f"Directory does not exist: {dir_path}",
-            "status": "error"
-        }
-
-    if not dir_path.is_dir():
-        return {
-            "message": f"Path is not a directory: {dir_path}",
+            "message": f"Path is not a directory: {resolved_path}",
             "status": "error"
         }
 
     folders = [
         str(folder)
-        for folder in dir_path.iterdir()
+        for folder in sorted(resolved_path.iterdir())
         if folder.is_dir()
     ]
 
     return {
         "folders": folders,
         "count": len(folders),
-        "directory": str(dir_path),
+        "directory": str(resolved_path),
         "status": "success"
     }
-# print(list_dir.invoke({
-#     "dir_path": "/home/onix/Code"
-# }))
+
 
 @tool
-def list_file(dir_path) -> dict:
-    """List all the files present in the provided dir_path
+def list_file(dir_path: str = ".") -> dict:
+    """List all the files present in the provided dir_path.
 
     Args:
-        dir_path (str): directory path in which you want to seach files
+        dir_path: directory path in which you want to search files. Defaults to "." (current directory).
 
     Returns:
         dict: files present in the directory
-        
     """
-    if(not dir_path.strip()):
-            return {"message":"directory path is not provided", "status":"error"}
-    
-    dir_path = Path((dir_path)).resolve()
-    if not dir_path.exists():
+    if not dir_path or not str(dir_path).strip():
+        dir_path = "."
+
+    resolved_path = Path(dir_path).expanduser().resolve()
+    if not resolved_path.exists():
         return {
-            "message": f"Directory does not exist: {dir_path}",
+            "message": f"Directory does not exist: {resolved_path}",
             "status": "error"
         }
-    
-    files = [str(file) for file in dir_path.iterdir() if file.is_file()]
-    return {"files":files, "count":len(files),"directory":str(dir_path)}
+    if not resolved_path.is_dir():
+        return {
+            "message": f"Path is not a directory: {resolved_path}. If you want to read this file, use read_file.",
+            "status": "error"
+        }
 
-# print(list_file.invoke({"dir_path":"/home/onix/Downloads"}))
+    files = [str(file) for file in sorted(resolved_path.iterdir()) if file.is_file()]
+    return {
+        "files": files,
+        "count": len(files),
+        "directory": str(resolved_path),
+        "status": "success"
+    }
 
 
 @tool
-def search_file_type(dir_path:str, file_glob:str) -> dict:
-    """search file of specific type in the given directory
+def search_file_type(dir_path: str = ".", file_glob: str = "*") -> dict:
+    """Search files of a specific type or glob pattern in the given directory.
 
     Args:
-        dir_path (str): path of the directory you want to search
-        file_glob (str): glob value or extension of the file type you want to search. e.g:"*.txt, *.md"
+        dir_path: path of the directory you want to search. Defaults to ".".
+        file_glob: glob pattern or extension (e.g. "*.py", "*.json"). Defaults to "*".
 
     Returns:
-        dict: return file with the required file type
+        dict: files matching the pattern
     """
-    file_glob = file_glob.strip()
-    
-    if(not dir_path):
-        return {"message":"directory path is not provided", "status":"error"}
-    if(not file_glob):
-        return list_file.invoke({"dir_path":str(dir_path)})
-    
-    dir_path = Path(dir_path).resolve()
-    files =  [str(file) for file in dir_path.glob(file_glob) if file.is_file()]
-    return {"directory":str(dir_path),"files":files, "glob_type": file_glob, "file_count": len(files)}
+    if not dir_path or not str(dir_path).strip():
+        dir_path = "."
 
-# print(search_file_type.invoke({
-#     "dir_path": "/home/onix/Downloads",
-#     "file_glob": "*.png"
-# }))
+    resolved_path = Path(dir_path).expanduser().resolve()
+    if not resolved_path.exists():
+        return {"message": f"Directory does not exist: {resolved_path}", "status": "error"}
+    if not resolved_path.is_dir():
+        return {"message": f"Path is not a directory: {resolved_path}", "status": "error"}
+
+    file_glob = file_glob.strip() if file_glob else "*"
+    if not file_glob:
+        file_glob = "*"
+
+    files = [str(f) for f in sorted(resolved_path.glob(file_glob)) if f.is_file()]
+    return {
+        "directory": str(resolved_path),
+        "files": files,
+        "glob_type": file_glob,
+        "file_count": len(files),
+        "status": "success"
+    }
+
 
 @tool
-def read_file(file_path: str) -> dict:
+def read_file(file_path: str, max_lines: int = 500) -> dict:
     """Reads the content and metadata of a specified file based on its extension.
 
-    Supports reading plaintext files (.txt, .md), structured data (.json), 
-    and tabular data (.csv). Automatically handles missing inputs or invalid paths.
+    Supports reading plaintext files (.py, .txt, .md, .toml, .yaml, etc.), 
+    structured data (.json), and tabular data (.csv).
 
     Args:
         file_path: The filesystem path of the file to be read.
+        max_lines: Maximum number of lines to return for large files (default: 500).
 
     Returns:
-        A dictionary indicating either a success structure or an error message.
-        
-        On Success:
-        {
-            "file_path": str,
-            "file_size": int,        # Size of the file in bytes
-            "file_content": Any      # list/dict for json, dict for csv, str for text
-        }
-        
-        On Failure:
-        {
-            "message": str,
+        A dictionary containing file_content, file_size, and status.
+    """
+    if not file_path or not str(file_path).strip():
+        return {"message": "File path is not provided", "status": "error"}
+
+    path_obj = Path(file_path).expanduser().resolve()
+    if not path_obj.exists():
+        return {"message": f"File does not exist: {path_obj}", "status": "error"}
+    if path_obj.is_dir():
+        return {
+            "message": f"The path '{path_obj}' is a directory, not a file. Use list_file or list_dir instead.",
             "status": "error"
         }
-    """
-    if not file_path:
-        return {"message": "file path is not provided", "status": "error"}
-        
-    path_obj = Path(file_path)
     if not path_obj.is_file():
-        return {"message": "The path is not a valid file path", "status": "error"}
-        
-    # Extract extension safely and convert to lowercase
+        return {"message": f"The path '{path_obj}' is not a valid regular file.", "status": "error"}
+
     ext = path_obj.suffix.lower().lstrip(".")
-    
+
     try:
-        if ext in ["txt", "md"]:
-            with open(path_obj, "r", encoding="utf-8") as file:
-                file_content = file.read()
-                
-        elif ext == "json":
-            with open(path_obj, "r", encoding="utf-8") as file:
+        if ext == "json":
+            with open(path_obj, "r", encoding="utf-8", errors="replace") as file:
                 file_content = json.load(file)
-                
         elif ext == "csv":
             import pandas as pd
-            # Convert DataFrame to a standard Python dictionary format to ensure JSON safety
-            df = pd.read_csv(path_obj)
+            df = pd.read_csv(path_obj, nrows=max_lines)
             file_content = df.to_dict(orient="records")
-            
         else:
-            # Fallback for other files (read as plain text)
-            with open(path_obj, "r", encoding="utf-8") as file:
-                file_content = file.read()
-                
+            with open(path_obj, "r", encoding="utf-8", errors="replace") as file:
+                lines = file.readlines()
+                if len(lines) > max_lines:
+                    file_content = "".join(lines[:max_lines]) + f"\n... [Truncated: showing {max_lines}/{len(lines)} lines]"
+                else:
+                    file_content = "".join(lines)
     except Exception as e:
         return {"message": f"Failed to read file: {str(e)}", "status": "error"}
-    
-    return {
-        "file_path": str(path_obj),  
-        "file_size": path_obj.stat().st_size, 
-        "file_content": file_content
-    }
 
-# print(read_file.invoke({"file_path":"/home/onix/Code/PatchPilot/file.txt"}))
+    return {
+        "file_path": str(path_obj),
+        "file_size": path_obj.stat().st_size,
+        "file_content": file_content,
+        "status": "success"
+    }
 

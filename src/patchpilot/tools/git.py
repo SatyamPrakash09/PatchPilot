@@ -3,9 +3,9 @@ from pathlib import Path
 from langchain.tools import tool
 
 def find_git_repos(path: str) -> list[Path]:
-    """Find Git repositories at or below the given path."""
+    """Find Git repositories at, above, or below the given path."""
 
-    root = Path(path).expanduser().resolve()
+    root = Path(path or ".").expanduser().resolve()
 
     if not root.exists():
         raise FileNotFoundError(f"Path does not exist: {root}")
@@ -13,33 +13,41 @@ def find_git_repos(path: str) -> list[Path]:
     if root.is_file():
         root = root.parent
 
+    # 1. Check if the path itself or any parent is a Git repository
+    current = root
+    while True:
+        if (current / ".git").exists():
+            return [current]
+        if current == current.parent:
+            break
+        current = current.parent
+
+    # 2. Check immediate subdirectories (skipping common heavy folders)
     repos = []
-
-    # The path itself is a repository.
-    if (root / ".git").exists():
-        return [root]
-
-    # Search child directories.
-    for git_dir in root.rglob(".git"):
-        repo = git_dir.parent
-
-        if git_dir.is_dir() or git_dir.is_file():
-            repos.append((repo))
+    ignored = {".venv", "venv", "node_modules", ".cache", "__pycache__"}
+    try:
+        for child in root.iterdir():
+            if child.name in ignored:
+                continue
+            if (child / ".git").exists():
+                repos.append(child)
+    except (PermissionError, OSError):
+        pass
 
     return sorted(set(repos))
 
-# print(find_git_repos("/home/onix/Code/Orbit"))
 
 def run_git(workspace_path: str, args: list[str]) -> str:
     """Run a Git command in the appropriate repository."""
 
     try:
-        repos = find_git_repos(workspace_path)
+        workspace = workspace_path if workspace_path and workspace_path.strip() else "."
+        repos = find_git_repos(workspace)
 
         if not repos:
             return (
-                f"No Git repository found at or below: "
-                f"{Path(workspace_path).resolve()}"
+                f"No Git repository found at, above, or below: "
+                f"{Path(workspace).resolve()}"
             )
 
         if len(repos) > 1:
@@ -78,15 +86,16 @@ def run_git(workspace_path: str, args: list[str]) -> str:
     except subprocess.TimeoutExpired:
         return "Error: Git command timed out."
 
+
 @tool
-def git_status(workspace: str) -> str:
+def git_status(workspace: str = ".") -> str:
     """Return the current Git working tree status and active branch.
 
     Shows staged, unstaged, and untracked files along with the current
     branch information.
 
     Args:
-        workspace: Absolute path to the Git repository.
+        workspace: Path to the Git repository or directory inside it. Defaults to current directory (".").
 
     Returns:
         A string containing the Git status output.
@@ -98,14 +107,14 @@ def git_status(workspace: str) -> str:
 
 
 @tool
-def git_diff(workspace: str) -> str:
+def git_diff(workspace: str = ".") -> str:
     """Return the current unstaged changes in the Git repository.
 
     Displays line-by-line differences between the working tree and the
     index.
 
     Args:
-        workspace: Absolute path to the Git repository.
+        workspace: Path to the Git repository or directory inside it. Defaults to current directory (".").
 
     Returns:
         A string containing the Git diff output.
@@ -117,11 +126,11 @@ def git_diff(workspace: str) -> str:
 
 
 @tool
-def git_branch(workspace: str) -> str:
+def git_branch(workspace: str = ".") -> str:
     """Return the name of the currently active Git branch.
 
     Args:
-        workspace: Absolute path to the Git repository.
+        workspace: Path to the Git repository or directory inside it. Defaults to current directory (".").
 
     Returns:
         The name of the current branch as a string.
@@ -133,13 +142,13 @@ def git_branch(workspace: str) -> str:
 
 
 @tool
-def git_logs(workspace: str) -> str:
+def git_logs(workspace: str = ".") -> str:
     """Return the latest 10 Git commits with branch and tag information.
 
     Each commit is displayed in a compact one-line format.
 
     Args:
-        workspace: Absolute path to the Git repository.
+        workspace: Path to the Git repository or directory inside it. Defaults to current directory (".").
 
     Returns:
         A string containing the latest 10 commits.
@@ -151,13 +160,13 @@ def git_logs(workspace: str) -> str:
 
 
 @tool
-def git_remote_branch(workspace: str) -> str:
+def git_remote_branch(workspace: str = ".") -> str:
     """Return the configured Git remote repositories and their URLs.
 
     This shows the fetch and push URLs configured for each Git remote.
 
     Args:
-        workspace: Absolute path to the Git repository.
+        workspace: Path to the Git repository or directory inside it. Defaults to current directory (".").
 
     Returns:
         A string containing the configured Git remote information.

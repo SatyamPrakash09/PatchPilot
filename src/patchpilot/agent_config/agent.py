@@ -1,20 +1,18 @@
+from pathlib import Path
 from langchain.agents import create_agent
 from patchpilot.agent_config.agent_tools import tools
 from patchpilot.config.setting import get_config
 from patchpilot.llm.model import llm_model
+
 config = get_config()
 
-
-system_prompt = ''
-
-with open ("/home/onix/Code/PatchPilot/src/patchpilot/agent_config/system_prompt.md", "r", encoding="utf-8") as file:
-    system_prompt = file.read()
+PROMPT_FILE = Path(__file__).parent / "system_prompt.md"
+system_prompt = PROMPT_FILE.read_text(encoding="utf-8") if PROMPT_FILE.exists() else ""
 
 agent = create_agent(
     system_prompt=system_prompt,
-    tools= tools,
-    model = llm_model
-    
+    tools=tools,
+    model=llm_model,
 )
 
 #Code below is just for tetsing the agent

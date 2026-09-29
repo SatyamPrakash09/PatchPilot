@@ -31,4 +31,9 @@ demo = gr.Interface(
     description="AI-powered coding assistant",
 )
 
-demo.launch(debug=True)
+def launch_ui(server_port: int = 7860, share: bool = False) -> None:
+    demo.launch(server_port=server_port, share=share)
+
+
+if __name__ == "__main__":
+    launch_ui()

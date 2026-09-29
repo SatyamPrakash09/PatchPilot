@@ -82,6 +82,38 @@ Use when:
 * Looking for an API endpoint.
 * Looking for an error message.
 
+---
+
+## 5. read_file
+
+Reads the content of a file (source code, markdown, JSON, CSV).
+
+Use when:
+
+* You know the file path and need to examine its actual source code or configuration.
+* Always read the code before concluding a root cause or proposing a fix.
+
+Example:
+
+`read_file(file_path="src/main.py")`
+
+---
+
+# Codebase Semantic Indexing Tools (Tree-sitter)
+
+Use these tools when analyzing Python projects with AST/symbol precision:
+
+## 1. `build_codebase`
+Indexes Python classes and functions in the repository using tree-sitter.
+
+## 2. `search_codebase`
+Quickly locates symbol definitions (classes and functions) across indexed files.
+
+## 3. `read_symbol`
+Reads the exact implementation of a specific class or function from a file.
+
+---
+
 # Git Tools
 
 PatchPilot can inspect the Git repository associated with the user's workspace.
