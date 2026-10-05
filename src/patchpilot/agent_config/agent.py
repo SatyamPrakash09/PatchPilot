@@ -6,7 +6,7 @@ from patchpilot.llm.model import llm_model
 
 config = get_config()
 
-PROMPT_FILE = Path(__file__).parent / "system_prompt.md"
+PROMPT_FILE = Path(__file__).parent / "system_prompt.toon"
 system_prompt = PROMPT_FILE.read_text(encoding="utf-8") if PROMPT_FILE.exists() else ""
 
 agent = create_agent(

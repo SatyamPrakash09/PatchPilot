@@ -63,7 +63,7 @@ def list_file(dir_path: str = ".") -> dict:
         }
     if not resolved_path.is_dir():
         return {
-            "message": f"Path is not a directory: {resolved_path}. If you want to read this file, use read_file.",
+            "message": f"Path is not a directory: {resolved_path}. If you want to read this file, use read_file_chunk.",
             "status": "error"
         }
 
@@ -110,32 +110,35 @@ def search_file_type(dir_path: str = ".", file_glob: str = "*") -> dict:
     }
 
 
-MAX_CHARS = 30_000
-DEFAULT_MAX_LINES = 300
+MAX_CHUNK = 500
 
 
 @tool
-def read_file(
-    file_path: str,
-    max_lines: int = DEFAULT_MAX_LINES,
-    max_chars: int = MAX_CHARS,
+def read_file_chunk(
+    filepath: str,
+    start_line: int = 1,
+    end_line: int = MAX_CHUNK,
 ) -> dict:
-    """Read a bounded portion of a file.
+    """Read a specific line range from a file.
 
-    Use this for inspecting files such as Python source, configuration,
-    Markdown, JSON, YAML, TOML, and CSV.
+    Lines are 1-indexed and inclusive on both ends.
+    If start_line / end_line are omitted the first 500 lines are returned.
+    Use this for inspecting source code, configuration, Markdown, JSON,
+    YAML, TOML, CSV, and similar text files.
 
-    Output is bounded by both max_lines and max_chars to prevent
-    excessive context usage.
+    Args:
+        filepath: Path to the file to read.
+        start_line: First line to include (1-indexed, default 1).
+        end_line: Last line to include (1-indexed, inclusive, default 500).
     """
 
-    if not file_path or not str(file_path).strip():
+    if not filepath or not str(filepath).strip():
         return {
-            "message": "File path is not provided",
+            "message": "File path is not provided.",
             "status": "error",
         }
 
-    path = Path(file_path).expanduser().resolve()
+    path = Path(filepath).expanduser().resolve()
 
     if not path.exists():
         return {
@@ -158,55 +161,49 @@ def read_file(
             "status": "error",
         }
 
+    # Validate line range.
+    if start_line < 1:
+        start_line = 1
+    if end_line < start_line:
+        return {
+            "message": (
+                f"end_line ({end_line}) must be >= start_line ({start_line})."
+            ),
+            "status": "error",
+        }
+
     try:
-        # Read text once.
-        content = path.read_text(
-            encoding="utf-8",
-            errors="replace",
-        )
+        content = path.read_text(encoding="utf-8", errors="replace")
+        all_lines = content.splitlines()
+        total_lines = len(all_lines)
 
-        lines = content.splitlines()
+        # Clamp to actual file length.
+        actual_start = min(start_line, total_lines) if total_lines else 1
+        actual_end = min(end_line, total_lines) if total_lines else 0
 
-        original_lines = len(lines)
-        original_chars = len(content)
+        # Slice (convert 1-indexed inclusive to 0-indexed exclusive).
+        selected = all_lines[actual_start - 1 : actual_end]
+        chunk = "\n".join(selected)
 
-        # First limit lines.
-        selected_lines = lines[:max_lines]
+        has_more = actual_end < total_lines
 
-        content = "\n".join(selected_lines)
-
-        truncated_by_lines = original_lines > max_lines
-
-        # Then enforce hard character limit.
-        truncated_by_chars = len(content) > max_chars
-
-        if truncated_by_chars:
-            content = content[:max_chars]
-
-        truncated = (
-            truncated_by_lines
-            or truncated_by_chars
-        )
-
-        if truncated:
-            content += (
-                "\n\n"
-                "[TRUNCATED]\n"
-                f"Showing at most {max_lines:,} lines "
-                f"and {max_chars:,} characters.\n"
-                f"Original: {original_lines:,} lines, "
-                f"{original_chars:,} characters.\n"
-                "Use a more specific range or read_symbol "
-                "to inspect the required code."
+        if has_more:
+            chunk += (
+                "\n\n[TRUNCATED]\n"
+                f"Showing lines {actual_start}–{actual_end} "
+                f"of {total_lines}.\n"
+                "Call read_file_chunk with a later range "
+                "or use read_symbol to jump to a specific symbol."
             )
 
         return {
-            "file_path": str(path),
+            "filepath": str(path),
             "file_size": path.stat().st_size,
-            "lines": original_lines,
-            "characters": original_chars,
-            "file_content": content,
-            "truncated": truncated,
+            "total_lines": total_lines,
+            "start_line": actual_start,
+            "end_line": actual_end,
+            "content": chunk,
+            "has_more": has_more,
             "status": "success",
         }
 

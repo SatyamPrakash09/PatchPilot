@@ -44,7 +44,7 @@ PatchPilot implements a progressive investigation workflow. When presented with 
          │                      │                      │
          └──────────────────────┼──────────────────────┘
                                 ▼
-                        📖 read_file
+                        📖 read_file_chunk
                                 │
                                 ▼
                         🔀 Git Inspection
@@ -74,7 +74,7 @@ PatchPilot/
 │       │   ├── agent.py          # LangGraph ReAct agent compiler
 │       │   ├── agent_tools.py    # Registered tool registry
 │       │   ├── agent_test_ui.py  # Gradio web interface
-│       │   └── system_prompt.md  # Agent persona, workflow & tool instructions
+│       │   └── system_prompt.toon # Agent persona & tool instructions (TOON format)
 │       │
 │       ├── codebase/             # Tree-sitter AST indexing
 │       │   ├── index.py          # CodebaseIndex AST symbol extractor
@@ -88,7 +88,7 @@ PatchPilot/
 │       │   └── model.py          # Chat model initialization via LangChain
 │       │
 │       ├── tools/                # Agent tools
-│       │   ├── filesystem.py     # list_dir, list_file, search_file_type, read_file
+│       │   ├── filesystem.py     # list_dir, list_file, search_file_type, read_file_chunk
 │       │   ├── search.py         # search_code (ripgrep)
 │       │   ├── git.py            # git_status, git_diff, git_branch, git_logs, git_remote_branch
 │       │   └── codebase_tool.py  # build_codebase, search_codebase, read_symbol
@@ -280,7 +280,7 @@ PatchPilot comes equipped with 13 built-in tools:
 | `list_dir` | `dir_path="."` | Lists directory names inside a target folder. |
 | `list_file` | `dir_path="."` | Lists regular files present directly inside a directory. |
 | `search_file_type` | `dir_path="."`, `file_glob="*.py"` | Finds files matching a specific glob or extension pattern. |
-| `read_file` | `file_path`, `max_lines=500` | Reads content of files (supports `.py`, `.json`, `.csv`, `.md`, text). |
+| `read_file_chunk` | `filepath`, `start_line=1`, `end_line=500` | Reads a specific line range from a file (1-indexed, inclusive). |
 
 ### 🔎 Code Search
 | Tool | Arguments | Description |

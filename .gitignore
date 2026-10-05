@@ -16,3 +16,6 @@ file.*
 result.*
 .gradio
 tempCodeRunnerFile.py
+.idea
+./.idea
+idea
