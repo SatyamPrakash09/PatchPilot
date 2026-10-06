@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     MODEL:str = "gemma4:31b-cloud"
     PROVIDER:str = "ollama"
     IS_STREAM:bool = False
+    FORCE:str = False
     
     
     
