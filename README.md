@@ -255,7 +255,26 @@ patchpilot serve
 # or with a custom port:
 patchpilot --serve --port 8000
 ```
-API endpoints will be available at `http://localhost:3000`.
+Interactive OpenAPI documentation is available at `http://localhost:3000/docs` (or ReDoc at `/redoc`).
+
+#### Key Web Endpoints:
+
+- **🤖 Agent Execution**:
+  - `POST /api/agent/run`: Run an agent query turn; returns tool execution trace and final answer.
+  - `POST /api/agent/stream`: Real-time Server-Sent Events (SSE) streaming for live web interfaces (`tool_call`, `tool_result`, `chunk`, `done`).
+  - `GET /api/agent/info`: Get current LLM model, provider, and server status.
+
+- **🌳 Codebase & Tree-sitter AST**:
+  - `GET /api/codebase/status?repo_path=.`: Get repository indexing status and symbol/file counts.
+  - `POST /api/codebase/index`: Build or re-index Tree-sitter symbols for target repository (`{"repo_path": ".", "force": false}`).
+  - `POST /api/codebase/search`: Search function and class symbols across the codebase (`{"query": "...", "repo_path": "."}`).
+  - `POST /api/codebase/symbol`: Retrieve complete source code of a symbol (`{"file_path": "...", "symbol_name": "..."}`).
+  - `GET /api/codebase/files?repo_path=.`: List all indexed files and their AST symbol outlines.
+
+- **🛠️ Direct Tool Invocation**:
+  - `POST /api/tools/git/status`, `/diff`, `/branch`, `/logs`, `/remotes`: Git inspection endpoints.
+  - `POST /api/tools/fs/list-dirs`, `/list-files`, `/read-chunk`, `/search-file-type`: Filesystem operations.
+  - `POST /api/tools/search/code`: Ripgrep code search across files.
 
 ---
 
