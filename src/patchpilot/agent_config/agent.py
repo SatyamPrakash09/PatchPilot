@@ -42,15 +42,17 @@ CODE_TOOLS = (
 # Bug analyst gets everything except git tools (may have execution tools).
 non_git_tools = [t for t in tools if _name(t) not in GIT_TOOLS]
 
-# Register a harness profile that disables the auto-added general-purpose subagent.
+# Register harness profiles that disable the auto-added general-purpose subagent.
 # The default GP subagent causes infinite loops because it inherits all tools
 # and the model repeatedly delegates to it, creating a cycle.
-register_harness_profile(
-    "ollama:gemma4:12b",
-    HarnessProfile(
-        general_purpose_subagent=GeneralPurposeSubagentProfile(enabled=False),
-    ),
-)
+# Register for both the ollama model and the "auto" model used by ChatOpenAI.
+for model_name in ("ollama:gemma4:12b", "auto"):
+    register_harness_profile(
+        model_name,
+        HarnessProfile(
+            general_purpose_subagent=GeneralPurposeSubagentProfile(enabled=False),
+        ),
+    )
 
 subagents = [
     {
