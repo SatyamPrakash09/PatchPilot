@@ -2,6 +2,7 @@
 
 import argparse
 import asyncio
+import json
 import traceback
 from typing import Any
 
@@ -59,6 +60,11 @@ def extract_text(content: Any) -> str:
     if isinstance(content, dict):
         return extract_text(content.get("content", ""))
     return str(content) if content is not None else ""
+
+
+def render_markdown(markdown_text: str) -> None:
+    """Render markdown text using Rich's Markdown renderer."""
+    console.print(Markdown(markdown_text))
 
 
 class StreamingCallbackHandler(BaseCallbackHandler):
@@ -134,10 +140,10 @@ def print_header():
 async def run_agent_turn(query: str, chat_history: list, debug: bool = False) -> str:
     """Execute one agent turn with streaming token output and loop detection.
 
-    Uses agent.astream() with stream_mode="updates" for real-time token streaming,
-    letting the graph handle tool execution automatically while we stream model output.
+    Uses agent.astream() with stream_mode="updates" to let the graph execute
+    tools internally while we stream tokens from the model node.
     """
-    from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, AIMessageChunk
+    from langchain_core.messages import HumanMessage, AIMessage
 
     # Get or create token logger
     token_logger = get_token_logger()
@@ -159,68 +165,70 @@ async def run_agent_turn(query: str, chat_history: list, debug: bool = False) ->
             turn_count += 1
             controller.latest_turns = turn_count
 
-            # Stream the response using updates mode (clean node-level events)
+            # Stream the response using updates mode - lets graph handle tool execution
             try:
                 streamed_content = ""
                 last_ai_message = None
-                has_tool_calls = False
+                task_call_counts: dict[str, int] = {}
+                tool_calls_in_turn: list[dict] = []
 
                 console.print()  # New line before streaming response
 
-                # Stream the response using updates mode - this gives us clean node events
+                # Stream using "updates" mode to see node outputs
                 async for chunk in agent.astream(
                     {"messages": chat_history},
                     config={
-                        "recursion_limit": 200,
+                        "recursion_limit": 500,
                         "callbacks": [token_logger],
                     },
                     stream_mode="updates",
                 ):
-                    if not isinstance(chunk, dict):
-                        continue
-
-                    # Process each node's output
+                    # chunk is a dict mapping node_name -> node_output
                     for node_name, node_output in chunk.items():
-                        if node_name == "model" and isinstance(node_output, dict):
+                        if node_name == "model" and node_output:
+                            # Stream tokens from model output
                             messages = node_output.get("messages", [])
                             for msg in messages:
-                                if isinstance(msg, AIMessage):
-                                    # Check for tool calls
-                                    if getattr(msg, 'tool_calls', None):
-                                        has_tool_calls = True
-                                    else:
-                                        # Final AI response - capture content
-                                        last_ai_message = msg
-                                        content = extract_text(msg.content)
-                                        if content:
-                                            streamed_content = content
+                                if hasattr(msg, "content") and msg.content:
+                                    streamed_content += msg.content
+                                    console.print(msg.content, end="", highlight=False, markup=False)
+                                # Track tool calls for loop detection
+                                if hasattr(msg, "tool_calls") and msg.tool_calls:
+                                    for tc in msg.tool_calls:
+                                        tool_calls_in_turn.append(tc)
+                                        if tc.get("name") == "task":
+                                            subagent_type = tc.get("args", {}).get("subagent_type", "unknown")
+                                            task_call_counts[subagent_type] = task_call_counts.get(subagent_type, 0) + 1
+                                last_ai_message = msg
 
-                        elif node_name == "tools" and isinstance(node_output, dict):
-                            # Tool execution results - add to our history
-                            tool_messages = node_output.get("messages", [])
-                            for msg in tool_messages:
-                                if isinstance(msg, ToolMessage):
-                                    chat_history.append(msg)
+                        elif node_name == "tools" and node_output:
+                            # Tool results are printed by the graph, we just track them
+                            messages = node_output.get("messages", [])
+                            for msg in messages:
+                                if hasattr(msg, "content") and msg.content:
+                                    # Print a brief preview of tool results
+                                    preview = msg.content.replace("\n", " ")[:200]
+                                    console.print(f"\n   [dim]↳ Tool result: {preview}...[/dim]", end="")
 
-                # Print the final response (it was already streamed by the model node)
-                if last_ai_message and not has_tool_calls:
-                    content = extract_text(last_ai_message.content)
-                    if content:
-                        console.print(content, end="", highlight=False, markup=False)
-                        console.print()  # New line after
-                        buffer = content
+                console.print()  # New line after streaming
+
+                buffer = streamed_content
+
+                # Track tool calls for loop controller
+                for tc in tool_calls_in_turn:
+                    if tc.get("name") != "task":  # task handled internally
+                        controller.record_tool_call(tc.get("name", ""))
+
+                # Check for task (subagent) delegation loop
+                if any(count > 2 for count in task_call_counts.values()):
+                    repeated = [f"{k}({v}x)" for k, v in task_call_counts.items() if v > 2]
+                    console.print(f"\n[yellow]⚠️ Subagent loop detected: {', '.join(repeated)}[/yellow]")
                     break
 
-                # If there were tool calls, the graph executed them and we continue
-                # The model will respond to tool results in the next iteration
-                if has_tool_calls:
-                    # Print a newline after tool execution
-                    console.print()
-                    continue
-
-                # No tool calls and no final response? Something went wrong
-                if not has_tool_calls and not last_ai_message:
-                    break
+                # Add final AI message to history
+                if last_ai_message:
+                    chat_history.append(last_ai_message)
+                break
 
             except Exception as e:
                 console.print(f"\n[yellow]⚠️ Model error (attempt {turn_count}): {e}[/yellow]")
@@ -232,10 +240,6 @@ async def run_agent_turn(query: str, chat_history: list, debug: bool = False) ->
 
         # Display final session summary
         token_logger.display_session_summary()
-
-        # Add final AI message to history
-        if buffer:
-            chat_history.append(AIMessage(content=buffer))
 
         return buffer
 
@@ -335,7 +339,10 @@ Examples:
     elif command == "ui":
         ui()
     else:
-        asyncio.run(run_agent_turn(query_str, [], debug=args.debug))
+        result = asyncio.run(run_agent_turn(query_str, [], debug=args.debug))
+        if result:
+            console.print()
+            render_markdown(result)
 
 
 if __name__ == "__main__":

@@ -45,8 +45,8 @@ non_git_tools = [t for t in tools if _name(t) not in GIT_TOOLS]
 # Register harness profiles that disable the auto-added general-purpose subagent.
 # The default GP subagent causes infinite loops because it inherits all tools
 # and the model repeatedly delegates to it, creating a cycle.
-# Register for both the ollama model and the "auto" model used by ChatOpenAI.
-for model_name in ("ollama:gemma4:12b", "auto"):
+# Register for the "auto" model used by ChatOpenAI.
+for model_name in ("openai:auto",):
     register_harness_profile(
         model_name,
         HarnessProfile(
