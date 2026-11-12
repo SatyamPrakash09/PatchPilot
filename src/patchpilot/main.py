@@ -1,4 +1,4 @@
-"""PatchPilot CLI main module - Fixed agent loop handling."""
+"""PatchPilot CLI main module - Rich UI port with Codex-style output."""
 
 import argparse
 import asyncio
@@ -6,6 +6,38 @@ import traceback
 from typing import Any
 
 from patchpilot.config.setting import get_config
+from patchpilot.utils.token_logger import TokenLogger, create_token_logger
+
+from rich.console import Console
+from rich.panel import Panel
+from rich.text import Text
+from rich.style import Style
+from rich.prompt import Prompt
+from rich.markdown import Markdown
+from rich import print as rprint
+
+
+# Global console instance
+console = Console()
+
+# Global token logger instance
+_token_logger: TokenLogger | None = None
+
+
+def get_token_logger() -> TokenLogger:
+    """Get the global token logger instance."""
+    global _token_logger
+    if _token_logger is None:
+        _token_logger = create_token_logger(verbose=False)
+    return _token_logger
+
+
+def reset_token_logger() -> None:
+    """Reset the global token logger for a new session."""
+    global _token_logger
+    if _token_logger is not None:
+        _token_logger.reset_usage()
+    _token_logger = create_token_logger(verbose=False)
 
 
 def extract_text(content: Any) -> str:
@@ -62,6 +94,21 @@ def create_tool_executor():
     return execute_tool, tool_map
 
 
+def print_header():
+    """Print the header panel like Codex."""
+    header = Text()
+    header.append("🛰️  PatchPilot Terminal Agent", style=Style(color="green", bold=True))
+    rprint()
+    rprint(Panel(
+        header,
+        style="bold green",
+        border_style="green",
+        expand=False
+    ))
+    rprint("[dim]Commands:[/] 'exit' or 'quit' to quit, 'clear' to reset chat history.")
+    rprint()
+
+
 async def run_agent_turn(query: str, chat_history: list, debug: bool = False) -> str:
     """Execute one agent turn with explicit loop detection and tool deduplication.
 
@@ -70,6 +117,9 @@ async def run_agent_turn(query: str, chat_history: list, debug: bool = False) ->
     default behavior.
     """
     from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
+
+    # Get or create token logger
+    token_logger = get_token_logger()
 
     # Initialize controller and tool executor
     controller = AgentLoopController(max_tool_calls=30, max_turns=15)
@@ -92,15 +142,18 @@ async def run_agent_turn(query: str, chat_history: list, debug: bool = False) ->
             turn_count += 1
             controller.latest_turns = turn_count
 
-            # Call the model
+            # Call the model with token logging callback
             try:
                 result = agent.invoke(
                     {"messages": chat_history},
-                    config={"recursion_limit": 200},
+                    config={
+                        "recursion_limit": 200,
+                        "callbacks": [token_logger],
+                    },
                 )
                 messages = result.get("messages", []) if isinstance(result, dict) else []
             except Exception as e:
-                print(f"\n⚠️ Model error (attempt {turn_count}): {e}", flush=True)
+                console.print(f"\n[yellow]⚠️ Model error (attempt {turn_count}): {e}[/yellow]")
                 break
 
             # Find the last AI message
@@ -116,7 +169,9 @@ async def run_agent_turn(query: str, chat_history: list, debug: bool = False) ->
                         # This is the final AI response
                         content = extract_text(msg.content)
                         if content:
-                            print(f"\n\033[1;34m🤖 [PatchPilot]\033[0m\n{content}\n", flush=True)
+                            # Render as Markdown like Claude
+                            rprint()
+                            console.print(Markdown(content))
                             buffer = content
                         break
 
@@ -126,7 +181,7 @@ async def run_agent_turn(query: str, chat_history: list, debug: bool = False) ->
 
             # Execute tool calls if any
             if last_tool_calls:
-                print(f"\033[2m🔧 Executing {len(last_tool_calls)} tool call(s)...\033[0m", flush=True)
+                console.print(f"\n[dim]🔧 Executing {len(last_tool_calls)} tool call(s)…[/dim]", end="")
 
                 for tc in last_tool_calls:
                     tool_name = tc.get("name")
@@ -135,7 +190,7 @@ async def run_agent_turn(query: str, chat_history: list, debug: bool = False) ->
 
                     # Check if we should allow this tool call (loop prevention)
                     if not controller.record_tool_call(tool_name):
-                        print(f"   ⚠️ Skipped {tool_name} - loop detected (called {controller.tool_call_counts.get(tool_name, 0)} times)", flush=True)
+                        console.print(f"\n   [yellow]⚠️ Skipped {tool_name} - loop detected ({controller.tool_call_counts.get(tool_name, 0)} times)[/yellow]", end="")
                         continue
 
                     # Execute the tool
@@ -145,7 +200,7 @@ async def run_agent_turn(query: str, chat_history: list, debug: bool = False) ->
 
                         # Print result preview
                         preview = result_str.replace("\n", " ")[:150]
-                        print(f"   ↳ {tool_name}: {preview}...", flush=True)
+                        console.print(f"\n   [cyan]↳ {tool_name}:[/cyan] {preview}...", end="")
 
                         # Add to history
                         chat_history.append(ToolMessage(
@@ -156,11 +211,11 @@ async def run_agent_turn(query: str, chat_history: list, debug: bool = False) ->
 
                         # Check for stop signals
                         if "STOP" in result_str.upper() or "ALREADY" in result_str.upper():
-                            print(f"   ℹ️ Tool suggests stopping - result indicates task complete", flush=True)
+                            console.print(f"\n   [yellow]ℹ️ Tool suggests stopping - result indicates task complete[/yellow]", end="")
 
                     except Exception as e:
                         error_result = f"Error executing {tool_name}: {e}"
-                        print(f"   ❌ {error_result}", flush=True)
+                        console.print(f"\n   [red]❌ {error_result}[/red]", end="")
                         chat_history.append(ToolMessage(
                             content=error_result,
                             tool_call_id=tool_call_id,
@@ -172,7 +227,10 @@ async def run_agent_turn(query: str, chat_history: list, debug: bool = False) ->
 
         # Warn if we hit limits
         if controller.total_tool_calls >= controller.max_tool_calls:
-            print(f"\n⚠️ Hit tool call limit ({controller.max_tool_calls}).", flush=True)
+            console.print(f"\n[yellow]⚠️ Hit tool call limit ({controller.max_tool_calls}).[/yellow]", end="")
+
+        # Display final session summary
+        token_logger.display_session_summary()
 
         # Add final AI message to history
         if buffer:
@@ -181,7 +239,7 @@ async def run_agent_turn(query: str, chat_history: list, debug: bool = False) ->
         return buffer
 
     except Exception as e:
-        print(f"\n❌ Error: {type(e).__name__}: {e}", flush=True)
+        console.print(f"\n[red]❌ Error: {type(e).__name__}: {e}[/red]")
         if debug:
             traceback.print_exc()
         if chat_history:
@@ -191,29 +249,28 @@ async def run_agent_turn(query: str, chat_history: list, debug: bool = False) ->
 
 async def chat_loop(debug: bool = False) -> None:
     """Interactive REPL on a single event loop (keeps async clients valid)."""
-    print("\033[1;32m==========================================\033[0m")
-    print("\033[1;32m      🛰️  PatchPilot Terminal Agent        \033[0m")
-    print("\033[1;32m==========================================\033[0m")
-    print("Commands: 'exit' or 'quit' to quit, 'clear' to reset chat history.\n")
-
+    print_header()
     history: list = []
+
     while True:
         try:
-            user_input = (
-                await asyncio.to_thread(input, "\033[1;33mPatchPilot > \033[0m")
+            user_input = Prompt.ask(
+                "[bold cyan]PatchPilot[/bold cyan]",
+                console=console,
             ).strip()
         except (KeyboardInterrupt, EOFError):
-            print("\nExiting PatchPilot.")
+            console.print("\nExiting PatchPilot.")
             break
 
         if not user_input:
             continue
         if user_input.lower() in ("exit", "quit", "q"):
-            print("Goodbye!")
+            console.print("Goodbye!")
             break
         if user_input.lower() == "clear":
             history.clear()
-            print("Conversation history reset.\n")
+            reset_token_logger()
+            console.print("[dim]Conversation history reset.[/dim]")
             continue
 
         await run_agent_turn(user_input, history, debug=debug)
@@ -223,7 +280,7 @@ def start_interactive_session(debug: bool = False) -> None:
     try:
         asyncio.run(chat_loop(debug))
     except KeyboardInterrupt:
-        print("\nExiting PatchPilot.")
+        console.print("\nExiting PatchPilot.")
 
 
 def serve(port: int | None) -> None:
@@ -231,7 +288,7 @@ def serve(port: int | None) -> None:
 
     config = get_config()
     port = port or config.PORT
-    print(f"Starting PatchPilot FastAPI server on port {port}...", flush=True)
+    console.print(f"[green]Starting PatchPilot FastAPI server on port {port}...[/green]", end="")
     run("patchpilot.app.app:app", reload=config.DEVELOPMENT, port=port)
 
 

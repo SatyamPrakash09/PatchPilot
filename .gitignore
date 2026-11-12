@@ -20,4 +20,6 @@ tempCodeRunnerFile.py
 ./.idea
 idea
 frontend
+
+# Token usage logs
 patchpilot_token_usage.jsonl

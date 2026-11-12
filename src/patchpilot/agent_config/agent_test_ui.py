@@ -1,9 +1,14 @@
 import gradio as gr
 
 from patchpilot.agent_config.agent import agent
+from patchpilot.main import get_token_logger
 
 
 def agent_invoke(query: str) -> str:
+    # Reset token logger for fresh session
+    logger = get_token_logger()
+    logger.reset_usage()
+
     result = agent.invoke(
         {
             "messages": [
@@ -12,10 +17,19 @@ def agent_invoke(query: str) -> str:
                     "content": query,
                 }
             ]
+        },
+        config={
+            "callbacks": [logger],
         }
     )
 
-    return result["messages"][-1].content
+    # Get final token counts
+    usage = logger.get_total_usage()
+
+    # Append token usage to response
+    response = result["messages"][-1].content
+    token_info = f"\n\n---\n🪙 Token counts: {usage.input_tokens:,} input | {usage.output_tokens:,} output | {usage.total_tokens:,} total"
+    return response + token_info
 
 
 demo = gr.Interface(
