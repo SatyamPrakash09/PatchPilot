@@ -16,6 +16,10 @@ from rich.prompt import Prompt
 from rich.markdown import Markdown
 from rich import print as rprint
 
+from langchain_core.callbacks import BaseCallbackHandler
+from langchain_core.messages import BaseMessage
+from langchain_core.outputs import LLMResult
+
 
 # Global console instance
 console = Console()
@@ -55,6 +59,24 @@ def extract_text(content: Any) -> str:
     if isinstance(content, dict):
         return extract_text(content.get("content", ""))
     return str(content) if content is not None else ""
+
+
+class StreamingCallbackHandler(BaseCallbackHandler):
+    """Callback handler that prints LLM tokens as they stream."""
+
+    def __init__(self):
+        self._printed_content = ""
+
+    def on_llm_start(self, *args, **kwargs):
+        self._printed_content = ""
+
+    def on_llm_new_token(self, token: str, **kwargs) -> None:
+        """Print each token as it arrives."""
+        console.print(token, end="", highlight=False, markup=False)
+        self._printed_content += token
+
+    def on_llm_end(self, *args, **kwargs):
+        console.print()  # New line after streaming
 
 
 class AgentLoopController:
@@ -110,31 +132,26 @@ def print_header():
 
 
 async def run_agent_turn(query: str, chat_history: list, debug: bool = False) -> str:
-    """Execute one agent turn with explicit loop detection and tool deduplication.
+    """Execute one agent turn with streaming token output and loop detection.
 
-    This function implements a direct tool-calling loop that gives us full control
-    over the interaction, preventing the infinite loops observed with deepagents'
-    default behavior.
+    Uses the agent's native invoke with streaming callbacks for real-time output,
+    while maintaining custom loop detection for tool calls.
     """
     from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 
     # Get or create token logger
     token_logger = get_token_logger()
 
-    # Initialize controller and tool executor
+    # Initialize controller
     controller = AgentLoopController(max_tool_calls=30, max_turns=15)
-    execute_tool, tool_map = create_tool_executor()
 
     # Add user message to history
     chat_history.append(HumanMessage(content=query))
 
-    final_response = ""
     buffer = ""
 
     try:
-        # Import model function
         from patchpilot.agent_config.agent import agent
-        from patchpilot.llm.model import llm_model
 
         turn_count = 0
 
@@ -142,13 +159,16 @@ async def run_agent_turn(query: str, chat_history: list, debug: bool = False) ->
             turn_count += 1
             controller.latest_turns = turn_count
 
-            # Call the model with token logging callback
+            # Create streaming callback for this turn
+            streaming_handler = StreamingCallbackHandler()
+
+            # Call the model with both token logging and streaming callbacks
             try:
                 result = agent.invoke(
                     {"messages": chat_history},
                     config={
                         "recursion_limit": 200,
-                        "callbacks": [token_logger],
+                        "callbacks": [token_logger, streaming_handler],
                     },
                 )
                 messages = result.get("messages", []) if isinstance(result, dict) else []
@@ -166,12 +186,9 @@ async def run_agent_turn(query: str, chat_history: list, debug: bool = False) ->
                         last_tool_calls = msg.tool_calls
                         break
                     else:
-                        # This is the final AI response
+                        # This is the final AI response - content was already streamed
                         content = extract_text(msg.content)
                         if content:
-                            # Render as Markdown like Claude
-                            rprint()
-                            console.print(Markdown(content))
                             buffer = content
                         break
 
@@ -195,7 +212,15 @@ async def run_agent_turn(query: str, chat_history: list, debug: bool = False) ->
 
                     # Execute the tool
                     try:
-                        result = execute_tool(tool_name, args)
+                        from patchpilot.agent_config.agent_tools import tools
+                        tool_map = {t.name: t for t in tools}
+                        tool = tool_map.get(tool_name)
+
+                        if tool:
+                            result = tool.invoke(args)
+                        else:
+                            result = f"Error: Tool '{tool_name}' not found"
+
                         result_str = str(result) if not isinstance(result, str) else result
 
                         # Print result preview
@@ -222,7 +247,7 @@ async def run_agent_turn(query: str, chat_history: list, debug: bool = False) ->
                             name=tool_name,
                         ))
             else:
-                # No more tool calls, we have a response
+                # No more tool calls, we have the final response (already streamed)
                 break
 
         # Warn if we hit limits
@@ -308,7 +333,7 @@ Examples:
   patchpilot chat                    # Interactive terminal session
   patchpilot serve                   # Start FastAPI web server
   patchpilot ui                      # Launch Gradio test UI
-  patchpilot --debug "query"         # Print raw stream chunks
+  patchpilot --debug "query"         # Print raw stream output and tracebacks
         """,
     )
     parser.add_argument("query", nargs="*", help="Query, or 'chat' / 'serve' / 'ui'.")
