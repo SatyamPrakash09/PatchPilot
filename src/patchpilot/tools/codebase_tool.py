@@ -17,14 +17,12 @@ class CodebaseRuntime:
         self.index: CodebaseIndex | None = None
 
     def build(self) -> None:
-
         if self.index is not None:
             return
 
         self.index = CodebaseIndex(
             self.repo_path
         )
-
         self.index.build()
 
 
@@ -56,22 +54,36 @@ def build_codebase(repo_path: str = ".") -> str:
 
     Call this when you need to understand the structure
     of the repository or search for functions and classes.
-    
+
     Args:
         repo_path: The directory or repository path to index. Defaults to current directory (".").
+
+    Returns:
+        str: Status message. If already indexed, returns a special message instructing
+             the model to STOP using this tool and use search_codebase/read_symbol instead.
     """
     try:
         runtime = get_runtime(repo_path)
 
         if runtime.index is not None:
-            return f"Codebase at '{runtime.repo_path}' is already indexed ({len(runtime.index.files)} files)."
+            # CRITICAL: Return explicit stop message that the model must follow
+            # This is structured as a clear instruction: "STOP_CALLING_THIS_TOOL"
+            return (
+                "STOP_CALLING_THIS_TOOL: This codebase is ALREADY INDEXED.\n"
+                f"Repository: {runtime.repo_path}\n"
+                f"Files indexed: {len(runtime.index.files)}\n\n"
+                "ACTION: USE search_codebase() or read_symbol() to find specific code.\n"
+                "NEVER CALL build_codebase() AGAIN for this repository."
+            )
 
         runtime.build()
 
         return (
-            f"Codebase indexed successfully.\n"
+            "STATUS: Indexing complete.\n"
             f"Repository: {runtime.repo_path}\n"
-            f"Files indexed: {len(runtime.index.files)}"
+            f"Files indexed: {len(runtime.index.files)}\n\n"
+            "ACTION: Use search_codebase() to find specific code or read_symbol() to read implementations.\n"
+            "DO NOT CALL build_codebase() AGAIN for this repository."
         )
     except Exception as e:
         return f"Error indexing codebase: {str(e)}"
@@ -83,7 +95,7 @@ def search_codebase(query: str, repo_path: str = ".") -> str:
 
     Use this to locate relevant source code before reading
     the implementation.
-    
+
     Args:
         query: The symbol or function/class name to search for.
         repo_path: The directory or repository path. Defaults to current directory (".").
@@ -121,7 +133,7 @@ def read_symbol(
     repo_path: str = ".",
 ) -> str:
     """Read the complete source code of a specific symbol.
-    
+
     Args:
         file_path: Relative or absolute path of the file containing the symbol.
         symbol_name: The name of the function or class to extract.

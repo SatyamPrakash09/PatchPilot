@@ -212,3 +212,73 @@ def read_file_chunk(
             "message": f"Failed to read file: {e}",
             "status": "error",
         }
+
+
+IGNORE_DIRS = {
+    ".git", "node_modules", "__pycache__", ".venv", "venv", "env",
+    ".mypy_cache", ".pytest_cache", ".ruff_cache", ".idea", ".vscode",
+    "dist", "build", ".next", ".expo", ".gradle", "target",
+}
+
+
+def _ignored(name: str) -> bool:
+    return name in IGNORE_DIRS or name.endswith(".egg-info")
+
+
+@tool
+def list_tree(dir_path: str = ".", max_depth: int = 3, max_entries: int = 300) -> str:
+    """Recursively list ALL files and folders under a directory as a tree, in ONE call.
+
+    Use this whenever the user asks to list/show all files, the project layout,
+    or the folder contents. Do NOT call list_dir/list_file repeatedly to walk
+    a tree. Skips .git, node_modules, virtualenvs, caches, build output.
+
+    Args:
+        dir_path: root directory. Defaults to "." (current directory).
+        max_depth: how many levels to descend (default 3).
+        max_entries: maximum entries to print (default 300).
+    """
+    if not dir_path or not str(dir_path).strip():
+        dir_path = "."
+
+    root = Path(dir_path).expanduser().resolve()
+    if not root.exists():
+        return f"ERROR: directory does not exist: {root}"
+    if not root.is_dir():
+        return f"ERROR: not a directory: {root}. Use read_file_chunk to read a file."
+
+    lines: list[str] = []
+    state = {"count": 0, "truncated": False}
+
+    def walk(directory: Path, depth: int, prefix: str) -> None:
+        try:
+            entries = sorted(
+                directory.iterdir(), key=lambda p: (p.is_file(), p.name.lower())
+            )
+        except (PermissionError, OSError):
+            lines.append(f"{prefix}[unreadable]")
+            return
+        for entry in entries:
+            if state["truncated"]:
+                return
+            if _ignored(entry.name):
+                continue
+            if state["count"] >= max_entries:
+                state["truncated"] = True
+                return
+            state["count"] += 1
+            if entry.is_dir():
+                lines.append(f"{prefix}{entry.name}/")
+                if depth < max_depth:
+                    walk(entry, depth + 1, prefix + "  ")
+            else:
+                lines.append(f"{prefix}{entry.name}")
+
+    walk(root, 1, "")
+
+    footer = (
+        f"[TRUNCATED at {max_entries} entries. Narrow dir_path or lower max_depth.]"
+        if state["truncated"]
+        else f"[Listing complete: {state['count']} entries, depth<={max_depth}. No further calls needed.]"
+    )
+    return f"{root}\n" + "\n".join(lines) + "\n" + footer
