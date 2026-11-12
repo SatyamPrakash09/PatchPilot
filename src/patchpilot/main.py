@@ -134,10 +134,10 @@ def print_header():
 async def run_agent_turn(query: str, chat_history: list, debug: bool = False) -> str:
     """Execute one agent turn with streaming token output and loop detection.
 
-    Uses the agent's native invoke with streaming callbacks for real-time output,
-    while maintaining custom loop detection for tool calls.
+    Uses agent.astream() with stream_mode="updates" for real-time token streaming,
+    letting the graph handle tool execution automatically while we stream model output.
     """
-    from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
+    from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, AIMessageChunk
 
     # Get or create token logger
     token_logger = get_token_logger()
@@ -159,95 +159,71 @@ async def run_agent_turn(query: str, chat_history: list, debug: bool = False) ->
             turn_count += 1
             controller.latest_turns = turn_count
 
-            # Create streaming callback for this turn
-            streaming_handler = StreamingCallbackHandler()
-
-            # Call the model with both token logging and streaming callbacks
+            # Stream the response using updates mode (clean node-level events)
             try:
-                result = agent.invoke(
+                streamed_content = ""
+                last_ai_message = None
+                has_tool_calls = False
+
+                console.print()  # New line before streaming response
+
+                # Stream the response using updates mode - this gives us clean node events
+                async for chunk in agent.astream(
                     {"messages": chat_history},
                     config={
                         "recursion_limit": 200,
-                        "callbacks": [token_logger, streaming_handler],
+                        "callbacks": [token_logger],
                     },
-                )
-                messages = result.get("messages", []) if isinstance(result, dict) else []
-            except Exception as e:
-                console.print(f"\n[yellow]⚠️ Model error (attempt {turn_count}): {e}[/yellow]")
-                break
-
-            # Find the last AI message
-            ai_msg = None
-            last_tool_calls = []
-            for msg in reversed(messages):
-                if isinstance(msg, AIMessage):
-                    if getattr(msg, 'tool_calls', None):
-                        ai_msg = msg
-                        last_tool_calls = msg.tool_calls
-                        break
-                    else:
-                        # This is the final AI response - content was already streamed
-                        content = extract_text(msg.content)
-                        if content:
-                            buffer = content
-                        break
-
-            if ai_msg is None and not buffer:
-                # No AI message found
-                break
-
-            # Execute tool calls if any
-            if last_tool_calls:
-                console.print(f"\n[dim]🔧 Executing {len(last_tool_calls)} tool call(s)…[/dim]", end="")
-
-                for tc in last_tool_calls:
-                    tool_name = tc.get("name")
-                    args = tc.get("args", {})
-                    tool_call_id = tc.get("id", "unknown")
-
-                    # Check if we should allow this tool call (loop prevention)
-                    if not controller.record_tool_call(tool_name):
-                        console.print(f"\n   [yellow]⚠️ Skipped {tool_name} - loop detected ({controller.tool_call_counts.get(tool_name, 0)} times)[/yellow]", end="")
+                    stream_mode="updates",
+                ):
+                    if not isinstance(chunk, dict):
                         continue
 
-                    # Execute the tool
-                    try:
-                        from patchpilot.agent_config.agent_tools import tools
-                        tool_map = {t.name: t for t in tools}
-                        tool = tool_map.get(tool_name)
+                    # Process each node's output
+                    for node_name, node_output in chunk.items():
+                        if node_name == "model" and isinstance(node_output, dict):
+                            messages = node_output.get("messages", [])
+                            for msg in messages:
+                                if isinstance(msg, AIMessage):
+                                    # Check for tool calls
+                                    if getattr(msg, 'tool_calls', None):
+                                        has_tool_calls = True
+                                    else:
+                                        # Final AI response - capture content
+                                        last_ai_message = msg
+                                        content = extract_text(msg.content)
+                                        if content:
+                                            streamed_content = content
 
-                        if tool:
-                            result = tool.invoke(args)
-                        else:
-                            result = f"Error: Tool '{tool_name}' not found"
+                        elif node_name == "tools" and isinstance(node_output, dict):
+                            # Tool execution results - add to our history
+                            tool_messages = node_output.get("messages", [])
+                            for msg in tool_messages:
+                                if isinstance(msg, ToolMessage):
+                                    chat_history.append(msg)
 
-                        result_str = str(result) if not isinstance(result, str) else result
+                # Print the final response (it was already streamed by the model node)
+                if last_ai_message and not has_tool_calls:
+                    content = extract_text(last_ai_message.content)
+                    if content:
+                        console.print(content, end="", highlight=False, markup=False)
+                        console.print()  # New line after
+                        buffer = content
+                    break
 
-                        # Print result preview
-                        preview = result_str.replace("\n", " ")[:150]
-                        console.print(f"\n   [cyan]↳ {tool_name}:[/cyan] {preview}...", end="")
+                # If there were tool calls, the graph executed them and we continue
+                # The model will respond to tool results in the next iteration
+                if has_tool_calls:
+                    # Print a newline after tool execution
+                    console.print()
+                    continue
 
-                        # Add to history
-                        chat_history.append(ToolMessage(
-                            content=result_str,
-                            tool_call_id=tool_call_id,
-                            name=tool_name,
-                        ))
+                # No tool calls and no final response? Something went wrong
+                if not has_tool_calls and not last_ai_message:
+                    break
 
-                        # Check for stop signals
-                        if "STOP" in result_str.upper() or "ALREADY" in result_str.upper():
-                            console.print(f"\n   [yellow]ℹ️ Tool suggests stopping - result indicates task complete[/yellow]", end="")
-
-                    except Exception as e:
-                        error_result = f"Error executing {tool_name}: {e}"
-                        console.print(f"\n   [red]❌ {error_result}[/red]", end="")
-                        chat_history.append(ToolMessage(
-                            content=error_result,
-                            tool_call_id=tool_call_id,
-                            name=tool_name,
-                        ))
-            else:
-                # No more tool calls, we have the final response (already streamed)
+            except Exception as e:
+                console.print(f"\n[yellow]⚠️ Model error (attempt {turn_count}): {e}[/yellow]")
                 break
 
         # Warn if we hit limits
