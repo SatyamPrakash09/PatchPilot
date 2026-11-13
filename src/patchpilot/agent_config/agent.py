@@ -3,6 +3,7 @@ from pathlib import Path
 from deepagents import create_deep_agent
 from deepagents import HarnessProfile, register_harness_profile
 from deepagents.profiles.harness.harness_profiles import GeneralPurposeSubagentProfile
+from deepagents.backends.filesystem import FilesystemBackend
 
 from patchpilot.agent_config.agent_tools import tools
 from patchpilot.config.setting import get_config
@@ -14,6 +15,11 @@ PROMPT_FILE = Path(__file__).parent / "system_prompt.toon"
 if not PROMPT_FILE.exists():
     raise FileNotFoundError(f"System prompt missing: {PROMPT_FILE}")
 system_prompt = PROMPT_FILE.read_text(encoding="utf-8")
+
+# Use FilesystemBackend with virtual_mode=False to allow access to any path
+# root_dir defaults to current working directory, but virtual_mode=False allows
+# absolute paths and relative paths with .. to escape root_dir
+filesystem_backend = FilesystemBackend(root_dir=Path.cwd(), virtual_mode=False)
 
 
 def _name(tool) -> str:
@@ -236,4 +242,5 @@ agent = create_deep_agent(
     system_prompt=system_prompt,
     tools=tools,
     subagents=subagents,
+    backend=filesystem_backend,
 )
